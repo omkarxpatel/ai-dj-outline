@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How the AI DJ Listens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+/* Layout: three stacked bands, each one picture with a caption: how it flows, what it keeps, how it picks. */
+:root {
+  --bg: #f1f3f7;
+  --surface: #ffffff;
+  --fg: #141a25;
+  --muted: #5a6476;
+  --line: #d6dbe4;
+  --accent: #0a6a74;
+  --on-accent: #ffffff;
+  --key: oklch(52% 0.14 290);
+  --tempo: oklch(54% 0.13 200);
+  --energy: oklch(56% 0.14 65);
+  --faint: #e6e9ef;
+  --ok: #1d7a46;
+  --warn: #9a5b00;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Source Sans 3", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1218; --surface: #161b24; --fg: #e6eaf1; --muted: #9ba5b6; --line: #2a313e;
+    --accent: #5cc3cb; --on-accent: #0e1218; --faint: #222935; --ok: #5fcf8d; --warn: #f0b04a;
+    --key: oklch(75% 0.12 290); --tempo: oklch(77% 0.11 200); --energy: oklch(80% 0.12 70);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1218; --surface: #161b24; --fg: #e6eaf1; --muted: #9ba5b6; --line: #2a313e;
+  --accent: #5cc3cb; --on-accent: #0e1218; --faint: #222935; --ok: #5fcf8d; --warn: #f0b04a;
+  --key: oklch(75% 0.12 290); --tempo: oklch(77% 0.11 200); --energy: oklch(80% 0.12 70);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 17px/1.55 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--font-display); margin: 0; line-height: 1.1; text-wrap: balance; }
+p { margin: 0; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.label { font: 600 11px/1.3 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.tag { font: 600 10px/1 var(--font-mono); letter-spacing: 0.07em; text-transform: uppercase; padding: 4px 7px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; display: inline-block; }
+.tag-built { color: var(--ok); background: color-mix(in oklab, var(--ok) 12%, transparent); }
+.tag-progress { color: var(--warn); background: color-mix(in oklab, var(--warn) 12%, transparent); }
+.tag-pending { color: var(--muted); border-style: dashed; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.h-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.tags-legend { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.status ul.tagged { list-style: none; padding-left: 0; }
+.status ul.tagged li { display: flex; gap: 8px; align-items: baseline; }
+.status ul.tagged .tag { flex-shrink: 0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+header { padding-block: 52px 8px; display: grid; gap: 14px; }
+header h1 { font-size: clamp(2.3rem, 6vw, 4rem); font-weight: 700; letter-spacing: -0.02em; }
+header p.lede { font-size: 1.2rem; max-width: 52ch; }
+
+section { padding-block: 44px; display: grid; gap: 22px; border-bottom: 1px solid var(--line); }
+section > h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
+section > .sub { color: var(--muted); max-width: 60ch; margin-top: -12px; }
+
+/* ── Flow ───────────────────────── */
+.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; position: relative; }
+.flow::before { content: ""; position: absolute; left: 10%; right: 10%; top: 34px; height: 2px; background: var(--line); }
+.flow .dot { position: absolute; top: 29px; left: 10%; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); animation: flow 6s linear infinite; }
+@keyframes flow { from { left: 10%; } to { left: calc(90% - 12px); } }
+.step { position: relative; display: grid; justify-items: center; text-align: center; gap: 8px; padding: 0 4px; cursor: default; }
+.step .icon { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); border: 2px solid var(--line); color: var(--fg); transition: border-color .25s, background .25s, color .25s, transform .25s; }
+.step:hover .icon, .step:focus-within .icon { border-color: var(--accent); background: var(--accent); color: var(--on-accent); transform: translateY(-3px); }
+.step svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.step h3 { font-size: 1.1rem; }
+.step p { font-size: 0.92rem; color: var(--muted); }
+.wall { font-size: 0.95rem; color: var(--muted); border-left: 3px solid var(--line); padding-left: 12px; }
+
+/* ── Stored record ──────────────── */
+.record { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 24px; align-items: start; }
+.code { margin: 0; padding: 18px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); font: 14px/1.9 var(--font-mono); overflow-x: auto; white-space: pre; }
+.code .f { border-radius: 4px; padding: 1px 3px; transition: background .2s; cursor: default; }
+.code .k { color: var(--accent); }
+.decode { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.decode li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 7px 10px; border-radius: 8px; transition: background .2s; cursor: default; }
+.decode code { font: 600 13px/1 var(--font-mono); color: var(--accent); }
+.decode strong { font-weight: 600; }
+.decode span.v { color: var(--muted); }
+.is-lit { background: color-mix(in oklab, var(--accent) 16%, transparent); }
+.tone { display: flex; align-items: center; gap: 2px; height: 34px; margin-top: 4px; }
+.tone i { flex: 1; background: var(--accent); border-radius: 2px; opacity: .8; }
+.tone-axis { display: flex; justify-content: space-between; font: 11px/1 var(--font-mono); color: var(--muted); }
+.fine { font-size: 0.85rem; color: var(--muted); }
+
+/* ── Picking ────────────────────── */
+.formula { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; font: 600 15px/1.4 var(--font-mono); }
+.formula .t { padding: 4px 8px; border-radius: 6px; color: var(--on-accent); }
+.t-key { background: var(--key); } .t-tempo { background: var(--tempo); } .t-energy { background: var(--energy); }
+.rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.rule { display: grid; gap: 4px; padding-top: 10px; border-top: 3px solid var(--c); }
+.rule h3 { font-size: 1rem; }
+.rule p { font-size: 0.92rem; color: var(--muted); }
+.pick { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 28px; align-items: start; }
+.wheel-box { display: grid; gap: 10px; justify-items: center; }
+.now { width: 100%; padding: 12px 14px; border-radius: 10px; background: var(--accent); color: var(--on-accent); display: grid; gap: 2px; }
+.now .label { color: inherit; opacity: .8; }
+.now strong { font-family: var(--font-display); font-size: 1.15rem; }
+#wheel { width: 100%; max-width: 330px; height: auto; }
+#wheel .slot { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
+#wheel .slot.cand { stroke: var(--fg); }
+#wheel .slot.lit { fill: color-mix(in oklab, var(--key) 30%, var(--surface)); stroke: var(--key); stroke-width: 2.5; }
+#wheel .slot.now { fill: var(--accent); stroke: var(--accent); }
+#wheel text { font: 600 11px var(--font-mono); fill: var(--fg); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+#wheel text.on-now { fill: var(--on-accent); }
+#wheel text.ring { font: 600 10px var(--font-mono); fill: var(--muted); }
+#wheel .badge { fill: var(--key); }
+#wheel text.badge-t { fill: var(--on-accent); font-size: 10px; }
+#wheel .link { stroke: var(--key); stroke-width: 2; fill: none; opacity: .0; transition: opacity .2s; }
+#wheel .link.show { opacity: .9; }
+
+.presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.presets button { font: 600 14px/1 var(--font-body); padding: 9px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.presets button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.ranks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ranks li { display: grid; grid-template-columns: 26px minmax(0, 1fr) 52px; gap: 6px 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); cursor: default; transition: border-color .2s; }
+.ranks li:hover, .ranks li:focus { border-color: var(--key); outline: none; }
+.ranks li.top { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ranks .pos { font: 600 14px var(--font-mono); color: var(--muted); }
+.ranks .who { display: grid; gap: 1px; min-width: 0; }
+.ranks .who strong { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ranks .who span { font: 12px/1.4 var(--font-mono); color: var(--muted); }
+.next { font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; padding: 4px 6px; border-radius: 999px; background: var(--accent); color: var(--on-accent); }
+.ranks .score { font: 600 17px var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.bar { grid-column: 2 / 4; display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--faint); }
+.bar i { display: block; height: 100%; transition: width .35s ease; }
+.bar .bk { background: var(--key); } .bar .bt { background: var(--tempo); } .bar .be { background: var(--energy); }
+.ranks li.unheard { opacity: .6; border-style: dashed; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; background: var(--c); vertical-align: -1px; }
+
+/* ── Status ─────────────────────── */
+.status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.status ul { margin: 8px 0 0; padding-left: 1.1em; display: grid; gap: 6px; font-size: 0.95rem; }
+.status cite { font-style: italic; }
+footer { padding-block: 24px 56px; color: var(--muted); font-size: 0.85rem; }
+
+@media (max-width: 860px) {
+  .pick, .record { grid-template-columns: minmax(0, 1fr); }
+  .wheel-box { max-width: 360px; margin: 0 auto; }
+}
+@media (max-width: 640px) {
+  .flow { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .flow::before, .flow .dot { display: none; }
+  .step { grid-template-columns: 56px minmax(0, 1fr); justify-items: start; text-align: left; align-items: center; column-gap: 14px; }
+  .step .icon { width: 56px; height: 56px; grid-row: span 3; }
+  .step .tags { grid-column: 2; justify-content: flex-start; }
+  .rules, .status { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow .dot { animation: none; }
+  .step .icon, .bar i, .slot, .link { transition: none; }
+}
+</style>
+<style>body { margin: 0; } [hidden] { display: none !important; } img { max-width: 100%; } :root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <p class="label">Final project · Stage 2 outline · Omkar Patel</p>
+    <h1>How the AI DJ listens</h1>
+    <p class="lede">Spotify stopped sharing what its songs sound like. So this DJ learns each song by hearing it, then picks what should play next.</p>
+    <div class="tags-legend" aria-label="Status key"><span class="label">Status</span><span class="tag tag-built">Built</span><span class="tag tag-progress">In progress</span><span class="tag tag-pending">Pending</span></div>
+  </header>
+
+  <section aria-labelledby="flow-h">
+    <h2 id="flow-h">How it works</h2>
+    <ol class="flow">
+      <li class="dot" aria-hidden="true"></li>
+      <li class="step" tabindex="0">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M2 12h3l2-6 3 12 3-9 2 6 2-3h5"/></svg></div>
+        <h3>Listen</h3><p>Taps the live sound Spotify plays. Saves no audio.</p><div class="tags"><span class="tag tag-built">Built</span></div>
+      </li>
+      <li class="step" tabindex="0">
+        <div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 13l4-4M12 3v2"/></svg></div>
+        <h3>Measure</h3><p>Key, tempo, loudness and tone.</p><div class="tags"><span class="tag tag-built">Built</span></div>
+      </li>
+      <li class="step" tabindex="0">
+        <div class="icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg></div>
+        <h3>Remember</h3><p>One small record per song.</p><div class="tags"><span class="tag tag-built">Built</span></div>
+      </li>
+      <li class="step" tabindex="0">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M12 3v18M5 7h14M5 7l-3 7h6zM19 7l-3 7h6z"/></svg></div>
+        <h3>Score</h3><p>Compares every known song with what's playing.</p><div class="tags"><span class="tag tag-built">Built</span><span class="tag tag-progress">Tuning by ear</span></div>
+      </li>
+      <li class="step" tabindex="0">
+        <div class="icon"><svg viewBox="0 0 24 24"><path d="M7 5l10 7-10 7z"/></svg></div>
+        <h3>Pick</h3><p>Says why out loud and queues it in Spotify.</p><div class="tags"><span class="tag tag-built">Built</span><span class="tag tag-pending">Autoplay</span></div>
+      </li>
+    </ol>
+    <p class="wall">Spotify shares no raw audio, so the DJ can pick and explain songs. It can't crossfade or beatmatch them.</p>
+  </section>
+
+  <section aria-labelledby="rec-h">
+    <div class="h-row"><h2 id="rec-h">What it remembers about a song</h2><span class="tag tag-built">Built</span></div>
+    <p class="sub">Point at any line to see what it means.</p>
+    <div class="record">
+      <pre class="code" id="code" aria-label="A stored record"></pre>
+      <ul class="decode" id="decode"></ul>
+    </div>
+    <p class="fine">Real storage format with example values. About 140 bytes per song, up to 1,000 songs.</p>
+  </section>
+
+  <section aria-labelledby="pick-h">
+    <div class="h-row"><h2 id="pick-h">How it picks the next song</h2><span class="tag tag-built">Built</span><span class="tag tag-progress">Weights being tuned</span></div>
+    <div class="formula" aria-label="Score formula">
+      <span>score =</span><span class="t t-key">0.4 × key fit</span><span>+</span><span class="t t-tempo">0.4 × tempo fit</span><span>+</span><span class="t t-energy">0.2 × energy fit</span>
+    </div>
+    <div class="rules">
+      <div class="rule" style="--c: var(--key)"><h3>Key fit</h3><p>Same slot on the Camelot wheel scores 1.0. Each step away costs about 0.2.</p></div>
+      <div class="rule" style="--c: var(--tempo)"><h3>Tempo fit</h3><p>Within 6% feels like the same tempo. Further apart, the score drops fast.</p></div>
+      <div class="rule" style="--c: var(--energy)"><h3>Energy fit</h3><p>Similar loudness and brightness, so the next song doesn't jump out.</p></div>
+    </div>
+    <div class="pick">
+      <div class="wheel-box">
+        <div class="now"><span class="label">Now playing</span><strong id="now-name"></strong><span class="mono" id="now-facts"></span></div>
+        <svg id="wheel" viewBox="-14 -14 348 348" role="img" aria-label="Camelot wheel with the playing key and candidate keys marked"></svg>
+        <p class="fine">Outer ring: major keys (B). Inner ring: minor keys (A). Neighbours on the wheel mix well.</p>
+      </div>
+      <div style="display:grid; gap:12px; min-width:0">
+        <div class="presets" role="group" aria-label="What matters most">
+          <span class="label">What matters</span>
+          <button type="button" data-w="0.4,0.4,0.2" aria-pressed="true">Balanced (the app today)</button>
+          <button type="button" data-w="0.6,0.2,0.2" aria-pressed="false">Key first</button>
+          <button type="button" data-w="0.25,0.25,0.5" aria-pressed="false">Energy first</button>
+        </div>
+        <div class="legend"><span style="--c: var(--key)">Key</span><span style="--c: var(--tempo)">Tempo</span><span style="--c: var(--energy)">Energy</span></div>
+        <ol class="ranks" id="ranks" aria-live="polite"></ol>
+        <p class="fine">Example songs. The scores come from the app's real formulas.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="status-h">
+    <h2 id="status-h">Where it stands</h2>
+    <div class="status">
+      <div><p class="label">Done</p><ul class="tagged">
+        <li><span class="tag tag-built">Done</span><span>DJ shipped in v1.4.14</span></li>
+        <li><span class="tag tag-built">Done</span><span>Key and tempo checked against 189 real recordings</span></li>
+        <li><span class="tag tag-built">Done</span><span>Found that tempo was never being measured, and fixed it in v1.4.31</span></li>
+      </ul></div>
+      <div><p class="label">Next</p><ul class="tagged">
+        <li><span class="tag tag-progress">In progress</span><span>Log 20 real picks and tune by ear</span></li>
+        <li><span class="tag tag-pending">Pending</span><span>Autonomous mode and echo-out transitions</span></li>
+        <li><span class="tag tag-pending">Pending</span><span>Camelot wheel and song map inside the app</span></li>
+        <li><span class="tag tag-pending">Pending</span><span>Record the demo video</span></li>
+      </ul></div>
+      <div><p class="label">Sources</p><ul>
+        <li>Seaver, <cite>Computing Taste</cite> (2022)</li>
+        <li>Eriksson et al., <cite>Spotify Teardown</cite> (2019)</li>
+        <li><a href="https://techcrunch.com/2024/11/27/spotify-cuts-developer-access-to-several-of-its-recommendation-features" target="_blank" rel="noopener">TechCrunch</a>, Nov 27, 2024</li>
+      </ul></div>
+    </div>
+  </section>
+  <footer>Draft outline, November 16, 2026.</footer>
+</div>
+
+<script>
+(() => {
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── Stored record ─────────────────────────
+  // Field names and rounding match encodeProfile() in src/audio/trackProfile.ts.
+  const NOTES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
+  const MAJOR_CAMELOT = [8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1];
+  const camelot = (code) => {
+    const pc = code % 12, minor = code >= 12;
+    return (minor ? MAJOR_CAMELOT[(pc + 3) % 12] : MAJOR_CAMELOT[pc]) + (minor ? 'A' : 'B');
+  };
+  const keyName = (code) => NOTES[code % 12] + (code >= 12 ? ' minor' : ' major');
+  const rec = { s: [2.1, 1.4, 0.6, 0.2, -0.1, -0.4, -0.6, -0.9, -1.0, -1.3], n: 312, u: 29914120, l: -8.4, k: 21, kc: 0.74, b: 124.0, bc: 0.81 };
+  const lastHeard = new Date(rec.u * 60000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const fields = [
+    { f: 'id', raw: '"0exampleTrackId0000001"', name: 'Which song', v: 'The Spotify track id' },
+    { f: 's', raw: '"s": [' + rec.s.join(', ') + ']', name: 'Tone shape', v: '10 bands, bass to treble, in dB', tone: true },
+    { f: 'n', raw: '"n": ' + rec.n, name: 'Time heard', v: rec.n + ' seconds, across every play' },
+    { f: 'u', raw: '"u": ' + rec.u, name: 'Last heard', v: lastHeard + ' (minutes since 1970)' },
+    { f: 'l', raw: '"l": ' + rec.l, name: 'Loudness', v: rec.l + ' LUFS, the broadcast loudness scale' },
+    { f: 'k', raw: '"k": ' + rec.k, name: 'Key', v: keyName(rec.k) + ', slot ' + camelot(rec.k) + ' on the wheel' },
+    { f: 'kc', raw: '"kc": ' + rec.kc, name: 'Key confidence', v: 'How sure it is, 0 to 1' },
+    { f: 'b', raw: '"b": ' + rec.b.toFixed(1), name: 'Tempo', v: Math.round(rec.b) + ' BPM' },
+    { f: 'bc', raw: '"bc": ' + rec.bc, name: 'Tempo confidence', v: 'How sure it is, 0 to 1' },
+  ];
+  const code = document.getElementById('code');
+  const decode = document.getElementById('decode');
+  const lines = ['{'];
+  fields.forEach((x, i) => {
+    if (x.f === 'id') { lines.push('  <span class="f k" data-f="id">' + x.raw + '</span>: {'); return; }
+    lines.push('    <span class="f" data-f="' + x.f + '">' + x.raw + '</span>' + (i < fields.length - 1 ? ',' : ''));
+  });
+  lines.push('  }', '}');
+  code.innerHTML = lines.join('\n');
+  for (const x of fields) {
+    const li = document.createElement('li');
+    li.dataset.f = x.f;
+    li.tabIndex = 0;
+    li.innerHTML = '<code>' + x.f + '</code><div><strong></strong><br><span class="v"></span></div>';
+    li.querySelector('strong').textContent = x.name;
+    li.querySelector('.v').textContent = x.v;
+    if (x.tone) {
+      const max = Math.max(...rec.s.map(Math.abs));
+      const tone = document.createElement('div');
+      tone.className = 'tone';
+      tone.setAttribute('aria-hidden', 'true');
+      for (const v of rec.s) {
+        const bar = document.createElement('i');
+        bar.style.height = (20 + 80 * (v + max) / (2 * max)).toFixed(0) + '%';
+        tone.appendChild(bar);
+      }
+      const axis = document.createElement('div');
+      axis.className = 'tone-axis';
+      axis.innerHTML = '<span>bass</span><span>treble</span>';
+      li.querySelector('div').append(tone, axis);
+    }
+    decode.appendChild(li);
+  }
+  const light = (f, on) => document.querySelectorAll('[data-f="' + f + '"]').forEach((el) => el.classList.toggle('is-lit', on));
+  document.querySelectorAll('[data-f]').forEach((el) => {
+    const f = el.dataset.f;
+    el.addEventListener('pointerenter', () => light(f, true));
+    el.addEventListener('pointerleave', () => light(f, false));
+    el.addEventListener('focus', () => light(f, true));
+    el.addEventListener('blur', () => light(f, false));
+  });
+
+  // ── Scoring: ported from src/audio/mixCompatibility.ts ──
+  const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  function wheelSteps(a, b) {
+    const rel = (c) => (c >= 12 ? ((c % 12) + 3) % 12 : c % 12);
+    const fa = (rel(a) * 7) % 12, fb = (rel(b) * 7) % 12;
+    let d = (fb - fa) % 12;
+    if (d > 6) d -= 12;
+    if (d < -6) d += 12;
+    return d;
+  }
+  function keyFit(a, b) {
+    const d = Math.abs(wheelSteps(a, b)), modeChange = (a >= 12) !== (b >= 12);
+    if (d === 0) return modeChange ? 0.9 : 1;
+    return clamp((modeChange ? 0.72 : 1) - d * (modeChange ? 0.2 : 0.18));
+  }
+  function tempoFit(from, to) {
+    const oct = Math.log2(to / from);
+    const off = Math.abs((Math.pow(2, oct - Math.round(oct)) - 1) * 100);
+    if (off <= 6) return 1 - (off / 6) * 0.2;
+    return clamp(0.8 * Math.exp(-(((off - 6) / 8) ** 2)));
+  }
+  function energyFit(from, to) {
+    const loud = clamp(1 - Math.abs(to.l - from.l) / 8);
+    const tilt = clamp(1 - Math.abs(to.br - from.br) / 12);
+    return 0.6 * loud + 0.4 * tilt;
+  }
+  const brightness = (s) => (s[6] + s[7] + s[8] + s[9]) / 4 - (s[0] + s[1] + s[2] + s[3]) / 4;
+
+  const now = { name: 'Example song', k: rec.k, b: rec.b, l: rec.l, br: brightness(rec.s) };
+  document.getElementById('now-name').textContent = now.name;
+  document.getElementById('now-facts').textContent = camelot(now.k) + ' · ' + Math.round(now.b) + ' BPM · ' + now.l + ' LUFS';
+
+  const songs = [
+    { name: 'Song A', k: 16, b: 126, l: -8.9, br: -1.5 },
+    { name: 'Song B', k: 21, b: 131, l: -7.9, br: -2.4 },
+    { name: 'Song C', k: 0, b: 122, l: -9.0, br: -0.5 },
+    { name: 'Song D', k: 22, b: 124, l: -8.2, br: -2.0 },
+    { name: 'Song E', k: 23, b: 98, l: -12.5, br: 1.0 },
+    { name: 'Song F', k: 21, b: 124, l: -14.6, br: 3.0 },
+  ].map((s) => ({ ...s, fk: keyFit(now.k, s.k), ft: tempoFit(now.b, s.b), fe: energyFit(now, s) }));
+
+  // ── Wheel ─────────────────────────────────
+  const svg = document.getElementById('wheel');
+  const NS = 'http://www.w3.org/2000/svg';
+  const C = 160;
+  const pos = (num, minor) => {
+    const a = ((num - 1) * 30 - 90) * Math.PI / 180, r = minor ? 86 : 128;
+    return [C + r * Math.cos(a), C + r * Math.sin(a)];
+  };
+  const el = (tag, attrs, parent) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); (parent || svg).appendChild(n); return n; };
+  const linkLayer = el('g', {});
+  const slots = {};
+  for (const minor of [false, true]) {
+    for (let num = 1; num <= 12; num++) {
+      const [x, y] = pos(num, minor), id = num + (minor ? 'A' : 'B');
+      slots[id] = { c: el('circle', { cx: x, cy: y, r: 17, class: 'slot' }), t: el('text', { x, y }), x, y };
+      slots[id].t.textContent = id;
+    }
+  }
+  const nowId = camelot(now.k);
+  slots[nowId].c.classList.add('now');
+  slots[nowId].t.classList.add('on-now');
+  const badges = el('g', {});
+
+  // ── Ranking ───────────────────────────────
+  const list = document.getElementById('ranks');
+  const rows = songs.map((s) => {
+    const li = document.createElement('li');
+    li.tabIndex = 0;
+    li.innerHTML = '<span class="pos"></span><span class="who"><strong></strong><span></span></span><span class="score"></span><span class="bar"><i class="bk"></i><i class="bt"></i><i class="be"></i></span>';
+    li.querySelector('.who strong').textContent = s.name;
+    li.querySelector('.who span').textContent = camelot(s.k) + ' · ' + s.b + ' BPM · ' + s.l + ' LUFS';
+    const showLink = (on) => {
+      slots[camelot(s.k)].c.classList.toggle('lit', on);
+      if (s.link) s.link.classList.toggle('show', on);
+    };
+    li.addEventListener('pointerenter', () => showLink(true));
+    li.addEventListener('pointerleave', () => showLink(false));
+    li.addEventListener('focus', () => showLink(true));
+    li.addEventListener('blur', () => showLink(false));
+    s.li = li;
+    const id = camelot(s.k);
+    slots[id].c.classList.add('cand');
+    if (id !== nowId) {
+      const a = slots[nowId], b = slots[id];
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const qx = mx + (C - mx) * 0.5, qy = my + (C - my) * 0.5;
+      s.link = el("path", { d: "M" + a.x + " " + a.y + " Q " + qx + " " + qy + " " + b.x + " " + b.y, class: "link" }, linkLayer);
+    }
+    list.appendChild(li);
+    return s;
+  });
+  const unheard = document.createElement('li');
+  unheard.className = 'unheard';
+  unheard.innerHTML = '<span class="pos">–</span><span class="who"><strong>Song G</strong><span>not heard yet, so it can\'t be scored</span></span><span class="score">–</span>';
+
+  function rank(w) {
+    const first = new Map(rows.map((s) => [s.li, s.li.getBoundingClientRect().top]));
+    for (const s of rows) s.score = w[0] * s.fk + w[1] * s.ft + w[2] * s.fe;
+    const sorted = [...rows].sort((a, b) => b.score - a.score);
+    badges.replaceChildren();
+    const ranksAt = {};
+    sorted.forEach((s, i) => {
+      s.li.querySelector('.pos').textContent = i + 1;
+      s.li.querySelector('.score').textContent = s.score.toFixed(2);
+      s.li.classList.toggle('top', i === 0);
+      const strong = s.li.querySelector('.who strong');
+      strong.querySelector('.next')?.remove();
+      if (i === 0) { const t = document.createElement('span'); t.className = 'next'; t.textContent = 'Next up'; strong.appendChild(t); }
+      const [bk, bt, be] = s.li.querySelectorAll('.bar i');
+      bk.style.width = (w[0] * s.fk * 100).toFixed(1) + '%';
+      bt.style.width = (w[1] * s.ft * 100).toFixed(1) + '%';
+      be.style.width = (w[2] * s.fe * 100).toFixed(1) + '%';
+      s.li.title = 'Key fit ' + s.fk.toFixed(2) + ' · Tempo fit ' + s.ft.toFixed(2) + ' · Energy fit ' + s.fe.toFixed(2);
+      list.appendChild(s.li);
+      (ranksAt[camelot(s.k)] ||= []).push(i + 1);
+    });
+    list.appendChild(unheard);
+    // Rank numbers beside each candidate slot on the wheel.
+    for (const [id, ranks] of Object.entries(ranksAt)) {
+      const sl = slots[id];
+      const dx = sl.x - C, dy = sl.y - C, len = Math.hypot(dx, dy) || 1;
+      // Minor slots get their badge inside the inner ring, major slots outside the outer one,
+      // so a badge never sits on top of the other ring.
+      const r = id.endsWith("A") ? 54 : 156;
+      const bx = C + (dx / len) * r, by = C + (dy / len) * r;
+      const label = '#' + ranks.join(' #');
+      const wdt = 10 + label.length * 6.2;
+      el('rect', { x: bx - wdt / 2, y: by - 9, width: wdt, height: 18, rx: 9, class: 'badge' }, badges);
+      const t = el('text', { x: bx, y: by, class: 'badge-t' }, badges);
+      t.textContent = label;
+    }
+    if (reduceMotion) return;
+    for (const s of rows) {
+      const dy = first.get(s.li) - s.li.getBoundingClientRect().top;
+      if (dy) s.li.animate([{ transform: 'translateY(' + dy + 'px)' }, { transform: 'none' }], { duration: 300, easing: 'ease-out' });
+    }
+  }
+  const buttons = [...document.querySelectorAll('.presets button')];
+  for (const btn of buttons) {
+    btn.addEventListener('click', () => {
+      buttons.forEach((b) => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
+      rank(btn.dataset.w.split(',').map(Number));
+    });
+  }
+  rank([0.4, 0.4, 0.2]);
+})();
+</script>
+
+</body>
+</html>
