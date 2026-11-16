@@ -53,11 +53,11 @@ h1, h2, h3 { font-family: var(--font-display); margin: 0; line-height: 1.1; text
 p { margin: 0; }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .label { font: 600 11px/1.3 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
-.tag { font: 600 10px/1 var(--font-mono); letter-spacing: 0.07em; text-transform: uppercase; padding: 4px 7px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; display: inline-block; }
+.tag { font: 600 10px/1 var(--font-mono); letter-spacing: 0.07em; text-transform: uppercase; padding: 5px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; display: inline-flex; align-items: center; }
 .tag-built { color: var(--ok); background: color-mix(in oklab, var(--ok) 12%, transparent); }
 .tag-progress { color: var(--warn); background: color-mix(in oklab, var(--warn) 12%, transparent); }
 .tag-pending { color: var(--muted); border-style: dashed; }
-.tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; align-items: center; align-self: end; }
 .h-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
 .tags-legend { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .status ul.tagged { list-style: none; padding-left: 0; }
@@ -78,12 +78,12 @@ section > .sub { color: var(--muted); max-width: 60ch; margin-top: -12px; }
 .flow::before { content: ""; position: absolute; left: 10%; right: 10%; top: 34px; height: 2px; background: var(--line); }
 .flow .dot { position: absolute; top: 29px; left: 10%; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); animation: flow 6s linear infinite; }
 @keyframes flow { from { left: 10%; } to { left: calc(90% - 12px); } }
-.step { position: relative; display: grid; justify-items: center; text-align: center; gap: 8px; padding: 0 4px; cursor: default; }
+.step { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr auto; justify-items: center; text-align: center; gap: 8px; padding: 0 4px; cursor: default; }
 .step .icon { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); border: 2px solid var(--line); color: var(--fg); transition: border-color .25s, background .25s, color .25s, transform .25s; }
 .step:hover .icon, .step:focus-within .icon { border-color: var(--accent); background: var(--accent); color: var(--on-accent); transform: translateY(-3px); }
 .step svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .step h3 { font-size: 1.1rem; }
-.step p { font-size: 0.92rem; color: var(--muted); }
+.step p { font-size: 0.92rem; color: var(--muted); align-self: start; }
 .wall { font-size: 0.95rem; color: var(--muted); border-left: 3px solid var(--line); padding-left: 12px; }
 
 /* ── Stored record ──────────────── */
@@ -140,6 +140,8 @@ section > .sub { color: var(--muted); max-width: 60ch; margin-top: -12px; }
 .ranks .who strong { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ranks .who span { font: 12px/1.4 var(--font-mono); color: var(--muted); }
 .next { font: 600 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; padding: 4px 6px; border-radius: 999px; background: var(--accent); color: var(--on-accent); }
+/* .ranks .who span would otherwise repaint this badge muted-on-accent and hide the text. */
+.ranks .who .next { color: var(--on-accent); font: 600 10px/1 var(--font-mono); }
 .ranks .score { font: 600 17px var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
 .bar { grid-column: 2 / 4; display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--faint); }
 .bar i { display: block; height: 100%; transition: width .35s ease; }
@@ -161,9 +163,9 @@ footer { padding-block: 24px 56px; color: var(--muted); font-size: 0.85rem; }
 @media (max-width: 640px) {
   .flow { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .flow::before, .flow .dot { display: none; }
-  .step { grid-template-columns: 56px minmax(0, 1fr); justify-items: start; text-align: left; align-items: center; column-gap: 14px; }
+  .step { grid-template-columns: 56px minmax(0, 1fr); grid-template-rows: auto auto auto; justify-items: start; text-align: left; align-items: center; column-gap: 14px; }
   .step .icon { width: 56px; height: 56px; grid-row: span 3; }
-  .step .tags { grid-column: 2; justify-content: flex-start; }
+  .step .tags { grid-column: 2; justify-content: flex-start; align-self: start; }
   .rules, .status { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -292,7 +294,7 @@ footer { padding-block: 24px 56px; color: var(--muted); font-size: 0.85rem; }
   const lastHeard = new Date(rec.u * 60000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   const fields = [
     { f: 'id', raw: '"0exampleTrackId0000001"', name: 'Which song', v: 'The Spotify track id' },
-    { f: 's', raw: '"s": [' + rec.s.join(', ') + ']', name: 'Tone shape', v: '10 bands, bass to treble, in dB', tone: true },
+    { f: 's', raw: '"s": [' + rec.s.slice(0, 5).join(', ') + ',\n          ' + rec.s.slice(5).join(', ') + ']', name: 'Tone shape', v: '10 bands, bass to treble, in dB', tone: true },
     { f: 'n', raw: '"n": ' + rec.n, name: 'Time heard', v: rec.n + ' seconds, across every play' },
     { f: 'u', raw: '"u": ' + rec.u, name: 'Last heard', v: lastHeard + ' (minutes since 1970)' },
     { f: 'l', raw: '"l": ' + rec.l, name: 'Loudness', v: rec.l + ' LUFS, the broadcast loudness scale' },
